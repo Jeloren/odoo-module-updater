@@ -1,0 +1,14 @@
+node_modules/**
+dist/**
+test/**
+.git/**
+.github/**
+scripts/**
+package-lock.json
+.vscodeignore
+.gitignore
+extension.js
+catalog.py
+*.vsix
+**/__pycache__/**
+**/*.pyc

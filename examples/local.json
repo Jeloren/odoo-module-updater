@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "profiles": {
+        "local": {
+            "label": "Odoo 17 — локальный остановленный сервер",
+            "type": "local",
+            "python": ".venv/bin/python",
+            "odooBin": "odoo/odoo-bin",
+            "config": "odoo.conf",
+            "serverAlreadyStopped": true
+        }
+    }
+}

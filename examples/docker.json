@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "profiles": {
+        "docker": {
+            "label": "Odoo 17 — Docker Compose",
+            "type": "docker",
+            "composeFiles": ["docker-compose.yml"],
+            "service": "odoo",
+            "python": "python3",
+            "odooBin": "/usr/bin/odoo",
+            "config": "/etc/odoo/odoo.conf"
+        }
+    }
+}

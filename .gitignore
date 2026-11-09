@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.vscode/odoo-update.json
+*.vsix
+__pycache__/
+*.pyc
+*.lock.tmp

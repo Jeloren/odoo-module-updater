@@ -1,0 +1,48 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Odoo Module Updater",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["version", "profiles"],
+    "properties": {
+        "$schema": { "type": "string" },
+        "version": { "const": 1 },
+        "profiles": {
+            "type": "object", "minProperties": 1,
+            "additionalProperties": {
+                "type": "object", "additionalProperties": false,
+                "required": ["type", "python", "odooBin", "config"],
+                "properties": {
+                    "label": { "type": "string" },
+                    "type": { "enum": ["docker", "local"] },
+                    "python": { "type": "string", "minLength": 1, "description": "Python окружения Odoo. В Docker это путь внутри контейнера." },
+                    "odooBin": { "type": "string", "minLength": 1, "description": "Путь к Python-скрипту odoo-bin или odoo в среде запуска." },
+                    "config": { "type": "string", "minLength": 1, "description": "odoo.conf в среде запуска. Пароли читаются из него." },
+                    "database": { "type": "string", "description": "Необязательно. Начальная база, которую можно сменить через кнопку." },
+                    "cwd": { "type": "string", "description": "Рабочая папка на стороне VS Code. По умолчанию папка, содержащая .vscode." },
+                    "composeFiles": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+                    "service": { "type": "string", "minLength": 1 },
+                    "addonsPath": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Необязательное переопределение --addons-path, одинаковое для каталога и обновления." },
+                    "serverAlreadyStopped": { "type": "boolean", "description": "Локальный сервер остановлен вручную. Расширение запускает только команду обновления." },
+                    "stopCommand": { "$ref": "#/definitions/command" },
+                    "startCommand": { "$ref": "#/definitions/command" }
+                },
+                "allOf": [
+                    { "if": { "properties": { "type": { "const": "docker" } } }, "then": { "required": ["composeFiles", "service"] } },
+                    { "if": { "required": ["stopCommand"] }, "then": { "required": ["startCommand"] } },
+                    { "if": { "required": ["startCommand"] }, "then": { "required": ["stopCommand"] } }
+                ]
+            }
+        }
+    },
+    "definitions": {
+        "command": {
+            "type": "object", "additionalProperties": false, "required": ["command", "args"],
+            "properties": {
+                "command": { "type": "string", "minLength": 1 },
+                "args": { "type": "array", "items": { "type": "string" } },
+                "cwd": { "type": "string" }
+            }
+        }
+    }
+}

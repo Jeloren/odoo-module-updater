@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "profiles": {
+        "linux": {
+            "label": "Odoo 17 — systemd",
+            "type": "local",
+            "python": "/opt/odoo/.venv/bin/python",
+            "odooBin": "/opt/odoo/odoo-bin",
+            "config": "/etc/odoo/odoo.conf",
+            "stopCommand": { "command": "systemctl", "args": ["stop", "odoo17"] },
+            "startCommand": { "command": "systemctl", "args": ["start", "odoo17"] }
+        }
+    }
+}

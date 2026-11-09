@@ -1,0 +1,44 @@
+{
+    "name": "odoo-docker-module-update",
+    "displayName": "Odoo Module Updater",
+    "description": "Odoo 17 module discovery, update plans and remembered targets for Docker Compose and local installations.",
+    "version": "0.2.0",
+    "publisher": "local-afs",
+    "repository": { "type": "git", "url": "https://github.com/Jeloren/odoo-module-updater.git" },
+    "homepage": "https://github.com/Jeloren/odoo-module-updater#readme",
+    "bugs": { "url": "https://github.com/Jeloren/odoo-module-updater/issues" },
+    "engines": { "vscode": "^1.85.0" },
+    "main": "./src/extension.js",
+    "license": "MIT",
+    "categories": ["Other"],
+    "keywords": ["odoo", "docker", "addons", "development"],
+    "activationEvents": ["onStartupFinished"],
+    "scripts": {
+        "test": "node --test test/*.test.js",
+        "package": "node scripts/package.js"
+    },
+    "devDependencies": { "@vscode/vsce": "3.7.1" },
+    "capabilities": { "untrustedWorkspaces": { "supported": false } },
+    "contributes": {
+        "commands": [
+            { "command": "odooUpdate.configure", "title": "Odoo: открыть настройки расширения", "icon": "$(gear)" },
+            { "command": "odooUpdate.chooseProfile", "title": "Odoo: выбрать окружение" },
+            { "command": "odooUpdate.chooseModule", "title": "Odoo: выбрать модуль для обновления" },
+            { "command": "odooUpdate.chooseDatabase", "title": "Odoo: выбрать базу" },
+            { "command": "odooUpdate.preview", "title": "Odoo: показать план обновления", "icon": "$(list-tree)" },
+            { "command": "odooUpdate.refresh", "title": "Odoo: обновить каталог модулей", "icon": "$(refresh)" },
+            { "command": "odooUpdate.update", "title": "Odoo: обновить выбранный модуль", "icon": "$(sync)" }
+        ],
+        "views": { "explorer": [{ "id": "odooUpdate.modules", "name": "Odoo Modules" }] },
+        "viewsWelcome": [{
+            "view": "odooUpdate.modules",
+            "contents": "[Настроить окружение](command:odooUpdate.configure)\n[Выбрать окружение](command:odooUpdate.chooseProfile)\n[Загрузить модули](command:odooUpdate.refresh)"
+        }],
+        "menus": { "view/title": [
+            { "command": "odooUpdate.refresh", "when": "view == odooUpdate.modules", "group": "navigation" },
+            { "command": "odooUpdate.preview", "when": "view == odooUpdate.modules", "group": "navigation" },
+            { "command": "odooUpdate.configure", "when": "view == odooUpdate.modules", "group": "navigation" }
+        ] },
+        "jsonValidation": [{ "fileMatch": "**/.vscode/odoo-update.json", "url": "./schemas/odoo-update.schema.json" }]
+    }
+}

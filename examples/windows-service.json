@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "profiles": {
+        "windows": {
+            "label": "Odoo 17 — Windows service",
+            "type": "local",
+            "python": "C:/Odoo17/python/python.exe",
+            "odooBin": "C:/Odoo17/server/odoo-bin",
+            "config": "C:/Odoo17/server/odoo.conf",
+            "stopCommand": { "command": "net", "args": ["stop", "odoo-server-17.0"] },
+            "startCommand": { "command": "net", "args": ["start", "odoo-server-17.0"] }
+        }
+    }
+}
