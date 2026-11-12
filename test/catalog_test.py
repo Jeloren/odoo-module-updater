@@ -15,10 +15,11 @@ class CatalogTests(unittest.TestCase):
             for name, label in (('a/sale', 'First'), ('b/sale', 'Second'), ('a/base', 'Base')):
                 addon = root / name
                 addon.mkdir(parents=True)
-                (addon / '__manifest__.py').write_text(repr({'name': label, 'depends': ['base']}))
+                (addon / '__manifest__.py').write_text(repr({'name': label, 'depends': ['base'], 'data': ['views/form.xml', 'security/access.csv']}))
             modules = catalog.discover([root / 'missing', root / 'a', root / 'b'])
             self.assertEqual(modules['sale']['title'], 'First')
             self.assertEqual(modules['sale']['kind'], 'core')
+            self.assertEqual(modules['sale']['dataFiles'], ['views/form.xml', 'security/access.csv'])
 
     def test_downstream_includes_installed_transitive_children_and_handles_cycle(self):
         modules = {

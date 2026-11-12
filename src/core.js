@@ -21,6 +21,20 @@ function loadProfiles(file, workspace) {
     }
     return Object.entries(data.profiles).map(([id, entry]) => {
         const profile = { ...entry, id, workspace, settingsFile: file };
+        profile.updateMode = profile.updateMode || 'cli';
+        if (!['cli', 'rpc'].includes(profile.updateMode)) throw new Error(`${id}: updateMode должен быть cli или rpc.`);
+        if (profile.updateMode === 'rpc') {
+            let url;
+            try { url = new URL(profile.serverUrl); } catch { throw new Error(`${id}: укажите полный serverUrl.`); }
+            if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+                throw new Error(`${id}: serverUrl должен быть HTTP(S) адресом без пароля, query и fragment.`);
+            }
+            if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+                throw new Error(`${id}: для удалённого сервера используйте HTTPS; HTTP разрешён только для localhost.`);
+            }
+            profile.serverUrl = url.href.replace(/\/$/, '');
+            if (typeof profile.login !== 'string' || !profile.login.trim()) throw new Error(`${id}: укажите login.`);
+        }
         if (!['docker', 'local'].includes(profile.type)) throw new Error(`${id}: type должен быть docker или local.`);
         for (const key of ['python', 'odooBin', 'config']) {
             if (typeof profile[key] !== 'string' || !profile[key].trim()) throw new Error(`${id}: укажите ${key}.`);

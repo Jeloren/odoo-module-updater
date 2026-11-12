@@ -23,7 +23,7 @@ test('remembered target updates without another picker, uninstall clears it', as
     let installed = true;
     let failUpgrade = false;
     const vscode = {
-        workspace: { isTrusted: true, workspaceFolders: [{ uri: { fsPath: directory } }] },
+        workspace: { onDidSaveTextDocument: () => ({ dispose() {} }), isTrusted: true, workspaceFolders: [{ uri: { fsPath: directory } }] },
         StatusBarAlignment: { Left: 1 }, ProgressLocation: { Notification: 1 },
         EventEmitter: class { constructor() { this.event = () => {}; } fire() {} dispose() {} },
         commands: { registerCommand(id, callback) { commands.set(id, callback); return { dispose() {} }; } },

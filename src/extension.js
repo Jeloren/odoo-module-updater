@@ -2,7 +2,10 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
+const crypto = require('node:crypto');
 const { loadProfiles, catalogCommand, runtimeKey, runUpgrade } = require('./core');
+const { OdooRpc, connectionKey } = require('./rpc');
+const { LayoutQueue, locateLayoutTarget } = require('./layout');
 
 const installedStates = new Set(['installed', 'to upgrade']);
 
@@ -30,31 +33,52 @@ function activate(context) {
     const updateButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 22);
     const moduleButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 21);
     const databaseButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 20);
+    const layoutButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 19);
     const changed = new vscode.EventEmitter();
     let profile;
     let target = {};
     let modules = [];
     let busy = false;
     let disposed = false;
+    const rpc = new OdooRpc();
+    const layout = new LayoutQueue(async (binding) => {
+        if (busy) return false;
+        busy = true;
+        refreshButtons();
+        try { await update(binding); return true; }
+        finally { busy = false; refreshButtons(); }
+    }, { onError: reportError, onChange: refreshButtons });
+
+    function reportError(error) {
+        output.appendLine(error.message);
+        output.show(true);
+        vscode.window.showErrorMessage(`Odoo: ${error.message}`);
+    }
+
+    function targetIdentity() { return JSON.stringify([profile, target]); }
 
     function stateKey(current = profile) {
         return `odooUpdate.target.${current.settingsFile}.${current.id}.${runtimeKey(current)}`;
     }
 
     function refreshButtons() {
-        updateButton.text = busy ? '$(sync~spin) Odoo' : '$(sync) Обновить модуль';
+        updateButton.text = busy ? '$(sync~spin) Odoo' : `$(sync) Обновить · ${(profile?.updateMode || 'cli').toUpperCase()}`;
         updateButton.tooltip = target.module ? `${profile?.label || profile?.id} / ${target.database} / ${target.module}` : 'Выбрать модуль Odoo';
         moduleButton.text = `$(chevron-down) ${target.module || 'Модуль Odoo'}`;
         moduleButton.tooltip = 'Выбрать модуль из addons_path';
         databaseButton.text = `$(database) ${target.database || 'База Odoo'}`;
         databaseButton.tooltip = `${profile?.label || profile?.id || 'Окружение Odoo'} — выбрать базу`;
-        for (const item of [updateButton, moduleButton, databaseButton]) {
+        layoutButton.text = layout.enabled ? '$(eye) Вёрстка: ВКЛ' : '$(eye-closed) Вёрстка: выкл';
+        layoutButton.tooltip = 'Обновлять XML из data после сохранения. Браузер обновляется вручную.';
+        layoutButton.command = layout.enabled ? 'odooUpdate.layoutDisable' : 'odooUpdate.layoutEnable';
+        for (const item of [updateButton, moduleButton, databaseButton, layoutButton]) {
             if (profile) item.show(); else item.hide();
         }
         changed.fire();
     }
 
     async function saveTarget(next) {
+        if (JSON.stringify(next) !== JSON.stringify(target)) layout.disable();
         await context.workspaceState.update(stateKey(), next);
         target = next;
         refreshButtons();
@@ -65,6 +89,7 @@ function activate(context) {
     }
 
     async function useProfile(next) {
+        layout.disable();
         profile = next;
         target = context.workspaceState.get(stateKey(), {});
         if (profile.database && !target.database) target = { database: profile.database };
@@ -125,10 +150,9 @@ function activate(context) {
                 clearTimeout(timer);
                 if (failure) return reject(failure);
                 if (code === 0) return resolve(stdout);
-                try {
-                    const response = JSON.parse(stdout);
-                    if (response.error) return reject(new Error(response.error));
-                } catch { /* Odoo startup errors are shown in the output channel. */ }
+                let response;
+                try { response = JSON.parse(stdout); } catch { /* Startup errors are shown below. */ }
+                if (response?.error) return reject(new Error(response.error));
                 if (stderr) output.appendLine(stderr);
                 reject(new Error(`${path.basename(command.command)} завершился с кодом ${code}. Подробности в Output.`));
             });
@@ -205,21 +229,43 @@ function activate(context) {
         });
     }
 
-    async function update() {
+    async function update(binding) {
+        if (binding && (!layout.enabled || binding.identity !== targetIdentity())) return;
+        if (!await ensureProfile() || (!target.database && !await chooseDatabase())) return;
+        if (binding && (!layout.enabled || binding.identity !== targetIdentity())) return;
+        if (!target.module && !await chooseModule()) return;
         const remembered = target.module;
-        if (!await readModules()) return;
-        if (remembered && !target.module) {
+        let selectedPlan;
+        try { selectedPlan = await catalog('plan', { module: target.module }); }
+        catch (error) {
+            if (!error.message.includes('Выбранный модуль больше не установлен')) throw error;
+            await saveTarget({ database: target.database });
+            modules = [];
             vscode.window.showWarningMessage(`Модуль ${remembered} больше не установлен. Выбор сброшен.`);
             return;
         }
-        if (!target.module && !await chooseModule()) return;
-        const selectedPlan = await catalog('plan', { module: target.module });
+        modules = selectedPlan.modules || selectedPlan.plan;
+        const selected = modules.find((item) => item.name === target.module);
+        if (!selected || !installedStates.has(selected.state)) {
+            await saveTarget({ database: target.database });
+            modules = [];
+            vscode.window.showWarningMessage(`Модуль ${remembered} больше не установлен. Выбор сброшен.`);
+            return;
+        }
+        if (binding) {
+            const current = locateLayoutTarget(binding.sourceFile, modules);
+            if (current.module !== target.module || JSON.stringify([...current.files].sort()) !== JSON.stringify([...binding.files].sort())) {
+                throw new Error('Состав data изменился. Включите режим вёрстки заново.');
+            }
+        }
         if (selectedPlan.plan.some((item) => !item.available || !item.installable)) {
             throw new Error('В плане есть недоступные исходники. Откройте «Показать план обновления».');
         }
         await fs.promises.mkdir(context.globalStorageUri.fsPath, { recursive: true });
         const lock = path.join(context.globalStorageUri.fsPath, `${runtimeKey(profile)}.lock`);
         let handle;
+        let uncertain = false;
+        const started = Date.now();
         try { handle = await fs.promises.open(lock, 'wx'); }
         catch (error) {
             if (error.code === 'EEXIST') throw new Error(`Обновление этого окружения уже запущено. Блокировка: ${lock}`);
@@ -232,12 +278,85 @@ function activate(context) {
             output.appendLine(`Модули: ${selectedPlan.plan.map((item) => item.name).join(', ')}`);
             await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
                 title: `Odoo: обновление ${target.module}`, cancellable: false },
-            () => runUpgrade(profile, target.database, target.module, run));
+            () => profile.updateMode === 'rpc'
+                ? rpc.upgrade(profile, target.database, target.module, getPassword)
+                : runUpgrade(profile, target.database, target.module, run));
             vscode.window.showInformationMessage(`Odoo: ${target.module} обновлён в ${target.database}.`);
             modules = [];
+        } catch (error) {
+            uncertain = Boolean(error.uncertain);
+            layout.disable();
+            if (error.authentication) await context.secrets.delete(secretKey());
+            if (uncertain) {
+                const record = JSON.stringify({ state: 'uncertain', database: target.database,
+                    module: target.module, date: new Date().toISOString() });
+                await handle.write(record, 0, 'utf8');
+                await handle.truncate(Buffer.byteLength(record));
+                error.message += ' Исход обновления неизвестен. Проверьте Odoo, затем выполните «Снять блокировку неопределённого обновления». Автоповтор отключён.';
+            }
+            throw error;
         } finally {
+            output.appendLine(`Длительность операции: ${((Date.now() - started) / 1000).toFixed(3)} с`);
             await handle.close();
+            if (!uncertain) await fs.promises.unlink(lock);
+        }
+    }
+
+    function secretKey() {
+        return 'odooUpdate.password.' + crypto.createHash('sha256').update(connectionKey(profile, target.database)).digest('hex');
+    }
+
+    async function getPassword() {
+        const key = secretKey();
+        let password = await context.secrets.get(key);
+        if (password === undefined) {
+            password = await vscode.window.showInputBox({ title: `Odoo: ${profile.login} / ${target.database}`,
+                prompt: 'Пароль будет сохранён в защищённом хранилище VS Code.', password: true, ignoreFocusOut: true });
+            if (password !== undefined) await context.secrets.store(key, password);
+        }
+        return password;
+    }
+
+    async function forgetPassword() {
+        if (!await ensureProfile() || profile.updateMode !== 'rpc' || !target.database) return;
+        layout.disable();
+        rpc.forget(profile, target.database);
+        await context.secrets.delete(secretKey());
+        vscode.window.showInformationMessage('Odoo: сохранённый пароль удалён.');
+    }
+
+    async function layoutEnable() {
+        if (!await ensureProfile()) return;
+        if (profile.updateMode !== 'rpc') throw new Error('Режим вёрстки требует updateMode: rpc.');
+        if (!target.database) throw new Error('Сначала выберите базу Odoo.');
+        const document = vscode.window.activeTextEditor?.document;
+        if (!document || document.uri.scheme !== 'file') throw new Error('Откройте локальный XML-файл модуля.');
+        if (!await readModules()) return;
+        const binding = locateLayoutTarget(document.uri.fsPath, modules);
+        await saveTarget({ database: target.database, module: binding.module });
+        await fs.promises.access(path.join(context.globalStorageUri.fsPath, `${runtimeKey(profile)}.lock`))
+            .then(() => { throw new Error('Окружение заблокировано. Завершите или проверьте прежнее обновление.'); }, (error) => { if (error.code !== 'ENOENT') throw error; });
+        // Authenticate before enabling save-triggered work, never prompt midway through typing.
+        await rpc.authenticate(profile, target.database, getPassword);
+        layout.enable({ ...binding, sourceFile: document.uri.fsPath, identity: targetIdentity() });
+        output.appendLine(`Вёрстка включена: ${target.database} / ${binding.module}; ${binding.files.size} XML-файлов; задержка 800 мс.`);
+    }
+
+    async function clearUncertain() {
+        if (!await ensureProfile()) return;
+        layout.disable();
+        const lock = path.join(context.globalStorageUri.fsPath, `${runtimeKey(profile)}.lock`);
+        let record;
+        try { record = JSON.parse(await fs.promises.readFile(lock, 'utf8')); }
+        catch (error) { if (error.code === 'ENOENT') return; throw error; }
+        if (record.state !== 'uncertain') throw new Error('Это блокировка активной операции. Она не снимается этой командой.');
+        const yes = 'Я проверил Odoo, операция завершена';
+        const answer = await vscode.window.showWarningMessage(
+            `Исход обновления ${record.database} / ${record.module} неизвестен. Повтор во время работающего обновления недопустим.`,
+            { modal: true }, yes);
+        if (answer === yes) {
             await fs.promises.unlink(lock);
+            if (profile.updateMode === 'rpc' && target.database) rpc.forget(profile, target.database);
         }
     }
 
@@ -277,21 +396,26 @@ function activate(context) {
             refreshButtons();
             try { await callback(...args); }
             catch (error) {
-                output.appendLine(error.message);
-                output.show(true);
-                vscode.window.showErrorMessage(`Odoo: ${error.message}`);
+                layout.disable();
+                if (error.authentication && profile?.updateMode === 'rpc' && target.database) await context.secrets.delete(secretKey());
+                reportError(error);
             } finally { busy = false; refreshButtons(); }
         });
     }
 
-    const actions = { chooseModule, chooseDatabase, chooseProfile, update, preview, configure, refresh: readModules };
-    context.subscriptions.push(output, changed, updateButton, moduleButton, databaseButton,
+    const actions = { chooseModule, chooseDatabase, chooseProfile, update, preview, configure, refresh: readModules,
+        layoutEnable, clearUncertain, forgetPassword };
+    context.subscriptions.push(output, changed, updateButton, moduleButton, databaseButton, layoutButton,
         vscode.window.registerTreeDataProvider('odooUpdate.modules', provider));
     for (const [name, action] of Object.entries(actions)) context.subscriptions.push(command(`odooUpdate.${name}`, action));
     for (const name of ['chooseModule', 'chooseDatabase', 'update']) {
         context.subscriptions.push(command(`afsOdooUpdate.${name}`, actions[name]));
     }
-    context.subscriptions.push({ dispose() { disposed = true; } });
+    context.subscriptions.push(vscode.commands.registerCommand('odooUpdate.layoutDisable', () => layout.disable()));
+    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((document) => {
+        if (document.uri.scheme === 'file') layout.saved(document.uri.fsPath);
+    }));
+    context.subscriptions.push({ dispose() { disposed = true; layout.disable(); rpc.sessions.clear(); } });
     updateButton.command = 'odooUpdate.update';
     moduleButton.command = 'odooUpdate.chooseModule';
     databaseButton.command = 'odooUpdate.chooseDatabase';

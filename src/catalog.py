@@ -26,7 +26,8 @@ def discover(paths):
             try:
                 data = ast.literal_eval(manifest.read_text(encoding='utf-8-sig'))
                 item.update(title=str(data.get('name', addon.name)),
-                            depends=data.get('depends', []), installable=data.get('installable', True))
+                            depends=data.get('depends', []), installable=data.get('installable', True),
+                            dataFiles=data.get('data', []) if isinstance(data.get('data', []), (list, tuple)) else [])
             except (OSError, ValueError, SyntaxError, AttributeError):
                 item.update(title=addon.name, depends=[], installable=False, error='Не удалось прочитать manifest')
             modules[addon.name] = item

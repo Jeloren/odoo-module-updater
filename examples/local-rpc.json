@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "profiles": {
+    "dev": {
+      "label": "Odoo 17 · RPC",
+      "type": "local",
+      "python": "/path/to/venv/bin/python",
+      "odooBin": "/path/to/odoo/odoo-bin",
+      "config": "/path/to/odoo.conf",
+      "updateMode": "rpc",
+      "serverUrl": "http://127.0.0.1:8069",
+      "login": "admin"
+    }
+  }
+}

@@ -78,3 +78,18 @@ test('lock identity covers the server, shared by databases and workspaces', () =
     assert.equal(runtimeKey(docker), runtimeKey({ ...docker, database: 'other', workspace: '/another' }));
     assert.notEqual(runtimeKey(docker), runtimeKey({ ...docker, service: 'other' }));
 });
+
+test('RPC profile is explicit, validates endpoint, and leaves old profiles on CLI', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'odoo-rpc-config-'));
+    const file = path.join(directory, 'settings.json');
+    const load = (entry) => { fs.writeFileSync(file, JSON.stringify({version:1, profiles:{dev:entry}})); return loadProfiles(file,directory)[0]; };
+    try {
+        assert.equal(load(local).updateMode, 'cli');
+        assert.equal(load({...local, updateMode:'rpc', serverUrl:'http://127.0.0.1:8069/', login:'admin'}).serverUrl, 'http://127.0.0.1:8069');
+        for (const serverUrl of ['file:///tmp', 'http://user:secret@localhost', 'http://example.org', 'https://example.org/?password=x']) {
+            assert.throws(()=>load({...local, updateMode:'rpc', serverUrl, login:'admin'}));
+        }
+        assert.throws(()=>load({...local, updateMode:'rpc', serverUrl:'http://localhost:8069'}));
+        assert.throws(()=>load({...local, updateMode:'unknown'}));
+    } finally { fs.rmSync(directory,{recursive:true}); }
+});
